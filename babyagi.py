@@ -43,6 +43,61 @@ assert YOUR_TABLE_NAME, "TABLE_NAME environment variable is missing from .env"
 
 # Goal configuation
 OBJECTIVE = os.getenv("OBJECTIVE", "")
+INITIAL_CODE = '''
+<div class="max-w-6xl mx-auto px-4">
+  <div class="grid grid-cols-3 gap-8">
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+      <div class="px-4 py-5">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Feature 1</h3>
+        <div class="mt-2 text-sm leading-5 text-gray-500">
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </div>
+      </div>
+    </div>
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+      <div class="px-4 py-5">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Feature 2</h3>
+        <div class="mt-2 text-sm leading-5 text-gray-500">
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </div>
+      </div>
+    </div>
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+      <div class="px-4 py-5">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Feature 3</h3>
+        <div class="mt-2 text-sm leading-5 text-gray-500">
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </div>
+      </div>
+    </div>
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+      <div class="px-4 py-5">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Feature 4</h3>
+        <div class="mt-2 text-sm leading-5 text-gray-500">
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </div>
+      </div>
+    </div>
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+      <div class="px-4 py-5">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Feature 5</h3>
+        <div class="mt-2 text-sm leading-5 text-gray-500">
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </div>
+      </div>
+    </div>
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+      <div class="px-4 py-5">
+        <h3 class="text-lg font-medium leading-6 text-gray-900">Feature 6</h3>
+        <div class="mt-2 text-sm leading-5 text-gray-500">
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+'''
 INITIAL_TASK = os.getenv("INITIAL_TASK", os.getenv("FIRST_TASK", ""))
 
 
@@ -84,6 +139,7 @@ if DOTENV_EXTENSIONS:
 
 # Check if we know what we are doing
 assert OBJECTIVE, "OBJECTIVE environment variable is missing from .env"
+assert INITIAL_CODE, "OBJECTIVE environment variable is missing from .env"
 assert INITIAL_TASK, "INITIAL_TASK environment variable is missing from .env"
 
 if "gpt-4" in OPENAI_API_MODEL.lower():
@@ -178,11 +234,11 @@ def openai_call(
 
 
 def task_creation_agent(
-    objective: str, result: Dict, task_description: str, task_list: List[str]
+    objective: str, current_code: str, task_description: str, task_list: List[str]
 ):
     prompt = f"""
     You are a task creation AI that uses the result of an execution agent to create new tasks with the following objective: {objective},
-    The last completed task has the result: {result}.
+    The last completed task has resulted in the following code: {current_code}.
     This result was based on this task description: {task_description}. These are incomplete tasks: {', '.join(task_list)}.
     Based on the result, create new tasks to be completed by the AI system that do not overlap with incomplete tasks.
     Return the tasks as an array."""
@@ -212,8 +268,15 @@ def prioritization_agent(this_task_id: int):
             task_name = task_parts[1].strip()
             task_list.append({"task_id": task_id, "task_name": task_name})
 
+def initial_execution_agent(objective: str, task: str, current_code: str) -> str:
+    prompt = f"""
+    You are an AI who performs one task based on the following objective: {objective}\n.
+    Your task: {task}\n.
+    Current code: {current_code}\n.
+    """
+    return openai_call(prompt, temperature=0.7, max_tokens=2000)
 
-def execution_agent(objective: str, task: str) -> str:
+def execution_agent(objective: str, task: str, current_code: str) -> str:
     """
     Executes a task based on the given objective and previous context.
 
@@ -232,7 +295,11 @@ def execution_agent(objective: str, task: str) -> str:
     prompt = f"""
     You are an AI who performs one task based on the following objective: {objective}\n.
     Take into account these previously completed tasks: {context}\n.
-    Your task: {task}\nResponse:"""
+    Your task: {task}\n.
+    Current code: {current_code}\n.
+    Return the result in two parts like:
+    Response: Your explanation of what you did. 
+    Fixed Code: New code that that you have generated. No text here. """
     return openai_call(prompt, temperature=0.7, max_tokens=2000)
 
 
@@ -255,11 +322,30 @@ def context_agent(query: str, n: int):
     sorted_results = sorted(results.matches, key=lambda x: x.score, reverse=True)
     return [(str(item.metadata["task"])) for item in sorted_results]
 
+def stop_agent(objective: str, code: str) -> bool:
+    context = context_agent(query=objective, n=5)
+    prompt = f'''
+    You are an AI who determines when a code snippet meets the following objective: {objective}\n.
+    Take into account these previously completed tasks: {context}\n.
+    This is the current state of the code: {code}\n.
+    Answer only with "yes" or "no". 
+    '''
+    response = openai_call(prompt)
+    if response == "yes":
+        return True
+    return False
+
+
 
 # Add the first task
 first_task = {"task_id": 1, "task_name": INITIAL_TASK}
 
+# Set current code status
+current_code = INITIAL_CODE
+print("\033[92m\033[1m" + "\n*****INITIAL CODE*****\n" + "\033[0m\033[0m")
+print(current_code)
 add_task(first_task)
+
 # Main loop
 task_id_counter = 1
 while True:
@@ -275,7 +361,10 @@ while True:
         print(str(task["task_id"]) + ": " + task["task_name"])
 
         # Send to execution function to complete the task based on the context
-        result = execution_agent(OBJECTIVE, task["task_name"])
+        if task_id_counter == 1:
+            result = initial_execution_agent(OBJECTIVE, task["task_name"], current_code=current_code )
+        else:
+            result = execution_agent(OBJECTIVE, task["task_name"], current_code=current_code)
         this_task_id = int(task["task_id"])
         print("\033[93m\033[1m" + "\n*****TASK RESULT*****\n" + "\033[0m\033[0m")
         print(result)
@@ -284,6 +373,8 @@ while True:
         enriched_result = {
             "data": result
         }  # This is where you should enrich the result if needed
+        if task_id_counter != 1:
+            current_code = result.split("Fixed Code:")[1]
         result_id = f"result_{task['task_id']}"
         vector = get_ada_embedding(
             enriched_result["data"]
@@ -293,10 +384,16 @@ while True:
 	    namespace=OBJECTIVE
         )
 
-        # Step 3: Create new tasks and reprioritize task list
+        # Step 3: Determine if objective has been met
+        complete = stop_agent(OBJECTIVE, current_code)
+        if complete:
+            print("FINAL CODE:\n" + current_code)
+            break
+
+        # Step 4: Create new tasks and reprioritize task list
         new_tasks = task_creation_agent(
             OBJECTIVE,
-            enriched_result,
+            current_code,
             task["task_name"],
             [t["task_name"] for t in task_list],
         )
