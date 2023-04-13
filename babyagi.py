@@ -240,7 +240,7 @@ def task_creation_agent(
     You are a task creation AI that uses the result of an execution agent to create new tasks with the following objective: {objective},
     The last completed task has resulted in the following code: {current_code}.
     This result was based on this task description: {task_description}. These are incomplete tasks: {', '.join(task_list)}.
-    Based on the result, create new tasks to be completed by the AI system that do not overlap with incomplete tasks.
+    Based on the result, create new tasks to be completed by the AI system that do not overlap with incomplete tasks. Tasks should only modify existing code; do not add new components. 
     Return the tasks as an array."""
     response = openai_call(prompt)
     new_tasks = response.split("\n") if "\n" in response else [response]
@@ -271,6 +271,7 @@ def prioritization_agent(this_task_id: int):
 def initial_execution_agent(objective: str, task: str, current_code: str) -> str:
     prompt = f"""
     You are an AI who performs one task based on the following objective: {objective}\n.
+    Do not add an additional style tag. Do not add additional components. 
     Your task: {task}\n.
     Current code: {current_code}\n.
     """
@@ -294,6 +295,7 @@ def execution_agent(objective: str, task: str, current_code: str) -> str:
     # print(context)
     prompt = f"""
     You are an AI who performs one task based on the following objective: {objective}\n.
+    Do not add an additional style tag. Do not add additional components. Do not change how the code renders on the default screen. 
     Take into account these previously completed tasks: {context}\n.
     Your task: {task}\n.
     Current code: {current_code}\n.
@@ -325,13 +327,16 @@ def context_agent(query: str, n: int):
 def stop_agent(objective: str, code: str) -> bool:
     context = context_agent(query=objective, n=5)
     prompt = f'''
-    You are an AI who determines when a code snippet meets the following objective: {objective}\n.
+    You are an AI who determines when a code snippet is adequately responsive. This means it will display well on different screen sizes. 
     Take into account these previously completed tasks: {context}\n.
     This is the current state of the code: {code}\n.
-    Answer only with "yes" or "no". 
+
+    First answer with a yes or no, then provide an explanation. 
     '''
     response = openai_call(prompt)
-    if response == "yes":
+    print(context)
+    print("COMPLETED?", response)
+    if response[:3] == "yes" or response[:3] == "Yes":
         return True
     return False
 
